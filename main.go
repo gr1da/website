@@ -1,85 +1,52 @@
 package main
 
 import (
-	"bytes"
 	"html/template"
 	"log"
 	"net/http"
+	"strings"
 )
 
-const github = "https://github.com/gr1da"
-
-type NavItem struct {
-	Url  string
-	Name string
+type GlobalCtx struct {
+	BaseTemplate        *template.Template
+	GetCompiledHomepage func() *template.HTML
 }
 
-var NavList = []NavItem{
-	{"/", "Home"},
-	{"/blog", "Blog"},
-	{github, "Github"},
+func NewGlobalCtx(basePath string) *GlobalCtx {
+	tmpl, err := template.ParseFiles(basePath)
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
+
+	var _compiledHomepage template.HTML = ""
+	var _homepageNotBuilt bool = true
+
+	return &GlobalCtx{
+		BaseTemplate: tmpl,
+
+		GetCompiledHomepage: func() *template.HTML {
+			if _homepageNotBuilt {
+				var builder strings.Builder
+				tmpl.Execute(&builder, homepageContent)
+				_compiledHomepage = template.HTML(builder.String())
+				_homepageNotBuilt = false
+			}
+			return &_compiledHomepage
+		},
+	}
 }
 
-var mainTemplate *template.Template
-var blogPageTemplate *template.Template
-
-func setup() {
-	mt, err := template.ParseFiles("template.html")
-	if err != nil {
-		log.Fatalf(err.Error())
+func homepage(ctx *GlobalCtx) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(*ctx.GetCompiledHomepage()))
 	}
-	mainTemplate = mt
-
-	bpt, err := template.ParseFiles("blogpage_template.html")
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
-	blogPageTemplate = bpt
 }
 
 func main() {
-	setup()
-	http.HandleFunc("/", homepage)
-	http.HandleFunc("/blog", blog)
-	log.Fatal(http.ListenAndServe(":8080", nil))
-}
+	fs := http.FileServer(http.Dir("static"))
+	http.Handle("/static/", http.StripPrefix("/static", fs))
 
-type BasicPage struct {
-	Title       string
-	Description string
-	Navigation  []NavItem
-	Content     template.HTML
-}
-
-type BlogPageEntry struct {
-	Url   string
-	Date  string
-	Title string
-}
-
-type BlogPage struct {
-	List []BlogPageEntry
-}
-
-func homepage(w http.ResponseWriter, r *http.Request) {
-	page := BasicPage{
-		"Daniel's Website",
-		"Daniel's personal homepage",
-		NavList,
-		"<p>Work in progress, obviously.</p>",
-	}
-	mainTemplate.Execute(w, page)
-}
-
-func blog(w http.ResponseWriter, r *http.Request) {
-	var contentBldr bytes.Buffer
-	blogPageTemplate.Execute(&contentBldr,
-		BlogPage{[]BlogPageEntry{{"#", "nodate", "nothing"}}})
-
-	mainTemplate.Execute(w, BasicPage{
-		"Daniel's Blog",
-		"Daniel's personal blog",
-		NavList,
-		template.HTML(contentBldr.String()),
-	})
+	ctx := NewGlobalCtx("templates/main_template.gohtml")
+	http.HandleFunc("/", homepage(ctx))
+	log.Fatalln(http.ListenAndServe(":8080", nil))
 }
