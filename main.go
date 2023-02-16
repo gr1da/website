@@ -8,12 +8,13 @@ import (
 )
 
 type GlobalCtx struct {
-	BaseTemplate        *template.Template
-	GetCompiledHomepage func() *template.HTML
+	baseTemplate        *template.Template
+	getCompiledHomepage func() *template.HTML
+	requestBuildHome    func()
 }
 
 func NewGlobalCtx(basePath string) *GlobalCtx {
-	tmpl, err := template.ParseFiles(basePath)
+	_baseTemplate, err := template.ParseFiles(basePath)
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
@@ -21,24 +22,32 @@ func NewGlobalCtx(basePath string) *GlobalCtx {
 	var _compiledHomepage template.HTML = ""
 	var _homepageNotBuilt bool = true
 
-	return &GlobalCtx{
-		BaseTemplate: tmpl,
+	_getCompiledHomepage := func() *template.HTML {
+		if _homepageNotBuilt {
+			homepageContent.MainContent += template.HTML(getWeatherContent())
 
-		GetCompiledHomepage: func() *template.HTML {
-			if _homepageNotBuilt {
-				var builder strings.Builder
-				tmpl.Execute(&builder, homepageContent)
-				_compiledHomepage = template.HTML(builder.String())
-				_homepageNotBuilt = false
-			}
-			return &_compiledHomepage
-		},
+			var builder strings.Builder
+			_baseTemplate.Execute(&builder, homepageContent)
+			_compiledHomepage = template.HTML(builder.String())
+			_homepageNotBuilt = false
+		}
+		return &_compiledHomepage
+	}
+
+	_requestBuildHome := func() {
+		_homepageNotBuilt = false
+	}
+
+	return &GlobalCtx{
+		baseTemplate:        _baseTemplate,
+		getCompiledHomepage: _getCompiledHomepage,
+		requestBuildHome:    _requestBuildHome,
 	}
 }
 
 func homepage(ctx *GlobalCtx) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(*ctx.GetCompiledHomepage()))
+		w.Write([]byte(*ctx.getCompiledHomepage()))
 	}
 }
 
